@@ -1,99 +1,203 @@
--- Modern Compact Clock + Stopwatch GUI - with AUTO-RESIZE
--- Toggles now properly resize the whole window height
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║   Modern Clock + Stopwatch GUI  •  More wider GUI, and shorter ║
+-- ║   Left: Clock + SW  |  Right: Settings panel                   ║
+-- ╚══════════════════════════════════════════════════════════════╝
 
-local Players        = game:GetService("Players")
-local RunService     = game:GetService("RunService")
-local TweenService   = game:GetService("TweenService")
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- ────────────────────────────────────────────────────────────────
+--  THEMES
+-- ────────────────────────────────────────────────────────────────
+local themes = {
+    { name = "Blue",   accent = Color3.fromRGB(60,160,255),  clock = Color3.fromRGB(100,210,255), sw = Color3.fromRGB(255,215,0)   },
+    { name = "Green",  accent = Color3.fromRGB(60,220,120),  clock = Color3.fromRGB(100,255,160), sw = Color3.fromRGB(255,200,60)  },
+    { name = "Purple", accent = Color3.fromRGB(160,80,255),  clock = Color3.fromRGB(210,140,255), sw = Color3.fromRGB(255,180,80)  },
+    { name = "Pink",   accent = Color3.fromRGB(255,80,180),  clock = Color3.fromRGB(255,150,210), sw = Color3.fromRGB(100,230,255) },
+}
+local currentTheme = 1
+
+-- ────────────────────────────────────────────────────────────────
+--  SETTINGS STATE
+-- ────────────────────────────────────────────────────────────────
+local use24h        = true
+local showStopwatch = true
+local showDate      = true
+local showMs        = true
+local compactMode   = false
+local settingsOpen  = false
+
+-- ────────────────────────────────────────────────────────────────
+--  LAYOUT CONSTANTS
+-- ────────────────────────────────────────────────────────────────
+local TITLE_H     = 46
+local CONTENT_Y   = 64     -- y where content starts (below titlebar + gap)
+local LEFT_X      = 12
+local LEFT_W      = 330
+local RIGHT_X     = 350    -- LEFT_X + LEFT_W + gap(8)
+local RIGHT_W     = 228
+local BOT_PAD     = 14
+local SLIM_W      = LEFT_X + LEFT_W + 12   -- 354  (no settings)
+local FULL_W      = RIGHT_X + RIGHT_W + 12 -- 590  (with settings)
+
+-- ────────────────────────────────────────────────────────────────
+--  HELPERS
+-- ────────────────────────────────────────────────────────────────
+local function applyCorner(p, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 10)
+    c.Parent = p
+    return c
+end
+
+local function applyStroke(p, color, thickness, trans)
+    local s = Instance.new("UIStroke")
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Color = color or Color3.fromRGB(60,160,255)
+    s.Thickness = thickness or 1.5
+    s.Transparency = trans or 0.4
+    s.Parent = p
+    return s
+end
+
+local function tw(obj, props, t, style, dir)
+    TweenService:Create(obj, TweenInfo.new(t or 0.18,
+        style or Enum.EasingStyle.Quad,
+        dir   or Enum.EasingDirection.Out), props):Play()
+end
+
+-- ────────────────────────────────────────────────────────────────
 --  SCREEN GUI
 -- ────────────────────────────────────────────────────────────────
 local sg = Instance.new("ScreenGui")
-sg.Name = "CompactClockUI"
+sg.Name = "LandscapeClockUI"
 sg.ResetOnSpawn = false
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = playerGui
 
 -- ────────────────────────────────────────────────────────────────
---  MAIN FRAME (width fixed, height dynamic)
+--  SHADOW
+-- ────────────────────────────────────────────────────────────────
+local shadow = Instance.new("Frame")
+shadow.BackgroundColor3 = Color3.fromRGB(0,0,0)
+shadow.BackgroundTransparency = 0.62
+shadow.BorderSizePixel = 0
+shadow.ZIndex = 0
+shadow.Parent = sg
+applyCorner(shadow, 18)
+
+-- ────────────────────────────────────────────────────────────────
+--  MAIN FRAME
 -- ────────────────────────────────────────────────────────────────
 local main = Instance.new("Frame")
 main.Name = "Main"
-main.Size = UDim2.new(0, 320, 0, 300)           -- initial height - will be updated
-main.Position = UDim2.new(0.5, -160, 0.5, -150) -- roughly centered
-main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+main.BackgroundColor3 = Color3.fromRGB(14, 14, 19)
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
+main.ZIndex = 1
 main.Parent = sg
+applyCorner(main, 16)
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 14)
-corner.Parent = main
+local mainStroke = applyStroke(main, themes[currentTheme].accent, 1.5, 0.3)
 
-local stroke = Instance.new("UIStroke")
-stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-stroke.Color = Color3.fromRGB(60, 160, 255)
-stroke.Thickness = 1.5
-stroke.Transparency = 0.4
-stroke.Parent = main
-
-local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0.00, Color3.fromRGB(28, 28, 34)),
-    ColorSequenceKeypoint.new(1.00, Color3.fromRGB(12, 12, 16))
+local mainGrad = Instance.new("UIGradient")
+mainGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 24, 32)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(9,  9,  13)),
 }
-gradient.Rotation = 90
-gradient.Parent = main
+mainGrad.Rotation = 135
+mainGrad.Parent = main
 
 -- ────────────────────────────────────────────────────────────────
---  TITLE BAR + BUTTONS
+--  TITLE BAR
 -- ────────────────────────────────────────────────────────────────
 local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1,0,0,44)
-titleBar.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+titleBar.Size = UDim2.new(1, 0, 0, TITLE_H)
+titleBar.BackgroundColor3 = Color3.fromRGB(19, 19, 27)
 titleBar.BorderSizePixel = 0
+titleBar.ZIndex = 2
 titleBar.Parent = main
+applyCorner(titleBar, 16)
 
-local titleCorner = Instance.new("UICorner")
-titleCorner.CornerRadius = UDim.new(0,14)
-titleCorner.Parent = titleBar
+-- Thin accent underline
+local accentLine = Instance.new("Frame")
+accentLine.Size = UDim2.new(1, 0, 0, 2)
+accentLine.Position = UDim2.new(0, 0, 1, -1)
+accentLine.BackgroundColor3 = themes[currentTheme].accent
+accentLine.BackgroundTransparency = 0.5
+accentLine.BorderSizePixel = 0
+accentLine.ZIndex = 3
+accentLine.Parent = titleBar
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1,-88,1,0)
-title.Position = UDim2.new(0,12,0,0)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBold
-title.Text = "Clock  •  Stopwatch"
-title.TextColor3 = Color3.fromRGB(225,225,235)
-title.TextSize = 18
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = titleBar
+local titleIcon = Instance.new("TextLabel")
+titleIcon.Size = UDim2.new(0, 26, 0, 26)
+titleIcon.Position = UDim2.new(0, 13, 0.5, -13)
+titleIcon.BackgroundTransparency = 1
+titleIcon.Text = "🕐"
+titleIcon.Font = Enum.Font.GothamBold
+titleIcon.TextSize = 20
+titleIcon.ZIndex = 2
+titleIcon.Parent = titleBar
 
--- Settings button (gear)
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1, -150, 1, 0)
+titleLbl.Position = UDim2.new(0, 44, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.Text = "Clock  •  Stopwatch"
+titleLbl.TextColor3 = Color3.fromRGB(225, 225, 240)
+titleLbl.TextSize = 17
+titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+titleLbl.ZIndex = 2
+titleLbl.Parent = titleBar
+
+-- Minimize button
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 32, 0, 32)
+minimizeBtn.Position = UDim2.new(1, -112, 0.5, -16)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.Text = "—"
+minimizeBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+minimizeBtn.TextSize = 18
+minimizeBtn.ZIndex = 2
+minimizeBtn.Parent = titleBar
+applyCorner(minimizeBtn, 8)
+
+-- Settings / gear button
 local settingsBtn = Instance.new("ImageButton")
-settingsBtn.Size = UDim2.new(0,32,0,32)
-settingsBtn.Position = UDim2.new(1,-76,0,6)
-settingsBtn.BackgroundTransparency = 1
-settingsBtn.Image = "rbxassetid://7072718362"  -- gear / settings icon
-settingsBtn.ImageColor3 = Color3.fromRGB(160,160,180)
+settingsBtn.Size = UDim2.new(0, 32, 0, 32)
+settingsBtn.Position = UDim2.new(1, -76, 0.5, -16)
+settingsBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+settingsBtn.Image = "rbxassetid://7072718362"
+settingsBtn.ImageColor3 = Color3.fromRGB(150, 150, 175)
 settingsBtn.ScaleType = Enum.ScaleType.Fit
+settingsBtn.ZIndex = 2
 settingsBtn.Parent = titleBar
+applyCorner(settingsBtn, 8)
 
 -- Close button
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0,32,0,32)
-closeBtn.Position = UDim2.new(1,-40,0,6)
-closeBtn.BackgroundTransparency = 1
+closeBtn.Size = UDim2.new(0, 32, 0, 32)
+closeBtn.Position = UDim2.new(1, -40, 0.5, -16)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.Text = "×"
-closeBtn.TextColor3 = Color3.fromRGB(255, 90, 90)
-closeBtn.TextSize = 28
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextSize = 14
+closeBtn.ZIndex = 2
 closeBtn.Parent = titleBar
+applyCorner(closeBtn, 8)
 
 closeBtn.MouseButton1Click:Connect(function()
+    tw(main,   {Size = UDim2.new(0, main.AbsoluteSize.X, 0, 0), BackgroundTransparency = 1}, 0.2)
+    tw(shadow, {BackgroundTransparency = 1}, 0.2)
+    task.wait(0.22)
     sg:Destroy()
 end)
 
@@ -102,328 +206,539 @@ end)
 -- ────────────────────────────────────────────────────────────────
 local dragging, dragStart, startPos = false, nil, nil
 
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = main.Position
+titleBar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
+        dragging  = true
+        dragStart = i.Position
+        startPos  = main.Position
     end
 end)
 
-titleBar.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+titleBar.InputChanged:Connect(function(i)
+    if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
+    or i.UserInputType == Enum.UserInputType.Touch) then
+        local d = i.Position - dragStart
+        local np = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
+                             startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        main.Position   = np
+        shadow.Position = UDim2.new(np.X.Scale, np.X.Offset - 8, np.Y.Scale, np.Y.Offset + 9)
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1
+    or i.UserInputType == Enum.UserInputType.Touch then
         dragging = false
     end
 end)
 
 -- ────────────────────────────────────────────────────────────────
---  CLOCK (always visible)
+--  VERTICAL DIVIDER  (between left and right columns)
 -- ────────────────────────────────────────────────────────────────
-local clockFrame = Instance.new("Frame")
-clockFrame.Size = UDim2.new(1,-24,0,90)
-clockFrame.Position = UDim2.new(0,12,0,54)
-clockFrame.BackgroundTransparency = 1
-clockFrame.Parent = main
+local divider = Instance.new("Frame")
+divider.Size = UDim2.new(0, 1, 1, -(CONTENT_Y + BOT_PAD))
+divider.Position = UDim2.new(0, RIGHT_X - 8, 0, CONTENT_Y)
+divider.BackgroundColor3 = themes[currentTheme].accent
+divider.BackgroundTransparency = 0.72
+divider.BorderSizePixel = 0
+divider.ZIndex = 2
+divider.Visible = false   -- shown when settings open
+divider.Parent = main
+
+-- ────────────────────────────────────────────────────────────────
+--  LEFT COLUMN: CLOCK SECTION
+-- ────────────────────────────────────────────────────────────────
+local clockSection = Instance.new("Frame")
+clockSection.Name = "ClockSection"
+clockSection.Position = UDim2.new(0, LEFT_X, 0, CONTENT_Y)
+clockSection.BackgroundColor3 = Color3.fromRGB(19, 19, 27)
+clockSection.BorderSizePixel = 0
+clockSection.ZIndex = 1
+clockSection.Parent = main
+applyCorner(clockSection, 12)
+
+local clockGrad = Instance.new("UIGradient")
+clockGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(26, 26, 36)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(16, 16, 22)),
+}
+clockGrad.Rotation = 90
+clockGrad.Parent = clockSection
+
+local clockMicro = Instance.new("TextLabel")
+clockMicro.Size = UDim2.new(1, -14, 0, 18)
+clockMicro.Position = UDim2.new(0, 10, 0, 7)
+clockMicro.BackgroundTransparency = 1
+clockMicro.Font = Enum.Font.GothamBold
+clockMicro.Text = "CLOCK"
+clockMicro.TextColor3 = Color3.fromRGB(95, 95, 125)
+clockMicro.TextSize = 11
+clockMicro.TextXAlignment = Enum.TextXAlignment.Left
+clockMicro.ZIndex = 2
+clockMicro.Parent = clockSection
 
 local clockTxt = Instance.new("TextLabel")
-clockTxt.Size = UDim2.new(1,0,1,0)
+clockTxt.Size = UDim2.new(1, -14, 0, 56)
+clockTxt.Position = UDim2.new(0, 10, 0, 22)
 clockTxt.BackgroundTransparency = 1
 clockTxt.Font = Enum.Font.RobotoMono
 clockTxt.Text = "00:00:00"
-clockTxt.TextColor3 = Color3.fromRGB(100, 255, 140)
+clockTxt.TextColor3 = themes[currentTheme].clock
 clockTxt.TextScaled = true
-clockTxt.TextSize = 52
-clockTxt.Parent = clockFrame
+clockTxt.ZIndex = 2
+clockTxt.Parent = clockSection
 
-local clockStroke = Instance.new("UIStroke")
-clockStroke.Thickness = 1.2
-clockStroke.Color = Color3.fromRGB(0,0,0)
-clockStroke.Transparency = 0.6
-clockStroke.Parent = clockTxt
+local cStroke = Instance.new("UIStroke")
+cStroke.Thickness = 0.8
+cStroke.Color = Color3.fromRGB(0,0,0)
+cStroke.Transparency = 0.4
+cStroke.Parent = clockTxt
+
+local dateTxt = Instance.new("TextLabel")
+dateTxt.Size = UDim2.new(1, -14, 0, 20)
+dateTxt.Position = UDim2.new(0, 10, 0, 78)
+dateTxt.BackgroundTransparency = 1
+dateTxt.Font = Enum.Font.Gotham
+dateTxt.Text = "Wed, 07 May 2026"
+dateTxt.TextColor3 = Color3.fromRGB(125, 125, 150)
+dateTxt.TextSize = 13
+dateTxt.TextXAlignment = Enum.TextXAlignment.Left
+dateTxt.ZIndex = 2
+dateTxt.Parent = clockSection
 
 -- ────────────────────────────────────────────────────────────────
---  STOPWATCH SECTION
+--  LEFT COLUMN: STOPWATCH SECTION
 -- ────────────────────────────────────────────────────────────────
 local swFrame = Instance.new("Frame")
 swFrame.Name = "Stopwatch"
-swFrame.Size = UDim2.new(1,-24,0,220)
-swFrame.Position = UDim2.new(0,12,0,154)
-swFrame.BackgroundColor3 = Color3.fromRGB(24,24,30)
+swFrame.BackgroundColor3 = Color3.fromRGB(19, 19, 27)
 swFrame.BorderSizePixel = 0
+swFrame.ZIndex = 1
 swFrame.Parent = main
+applyCorner(swFrame, 12)
 
-local swCorner = Instance.new("UICorner")
-swCorner.CornerRadius = UDim.new(0,10)
-swCorner.Parent = swFrame
+local swMicro = Instance.new("TextLabel")
+swMicro.Size = UDim2.new(1, -14, 0, 18)
+swMicro.Position = UDim2.new(0, 10, 0, 7)
+swMicro.BackgroundTransparency = 1
+swMicro.Font = Enum.Font.GothamBold
+swMicro.Text = "STOPWATCH"
+swMicro.TextColor3 = Color3.fromRGB(95, 95, 125)
+swMicro.TextSize = 11
+swMicro.TextXAlignment = Enum.TextXAlignment.Left
+swMicro.ZIndex = 2
+swMicro.Parent = swFrame
 
 local swTime = Instance.new("TextLabel")
-swTime.Size = UDim2.new(1,-20,0,60)
-swTime.Position = UDim2.new(0,10,0,8)
+swTime.Size = UDim2.new(1, -14, 0, 56)
+swTime.Position = UDim2.new(0, 10, 0, 22)
 swTime.BackgroundTransparency = 1
 swTime.Font = Enum.Font.RobotoMono
 swTime.Text = "00:00.00"
-swTime.TextColor3 = Color3.fromRGB(255, 215, 0)
+swTime.TextColor3 = themes[currentTheme].sw
 swTime.TextScaled = true
-swTime.TextSize = 48
+swTime.ZIndex = 2
 swTime.Parent = swFrame
 
--- Stopwatch controls
-local btnSize = UDim2.new(0.46,0,0,38)
+local swStroke = Instance.new("UIStroke")
+swStroke.Thickness = 0.8
+swStroke.Color = Color3.fromRGB(0,0,0)
+swStroke.Transparency = 0.4
+swStroke.Parent = swTime
 
-local startPauseBtn = Instance.new("TextButton")
-startPauseBtn.Size = btnSize
-startPauseBtn.Position = UDim2.new(0.02,0,0,78)
-startPauseBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 40)
-startPauseBtn.Font = Enum.Font.GothamSemibold
-startPauseBtn.Text = "START"
-startPauseBtn.TextColor3 = Color3.new(1,1,1)
-startPauseBtn.TextSize = 16
-startPauseBtn.Parent = swFrame
+-- Stopwatch buttons
+local function makeBtn(text, bgColor, xScale, xOff, yOff, wScale)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(wScale or 0.46, 0, 0, 36)
+    btn.Position = UDim2.new(xScale, xOff, 0, yOff)
+    btn.BackgroundColor3 = bgColor
+    btn.Font = Enum.Font.GothamBold
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.TextSize = 14
+    btn.ZIndex = 2
+    btn.Parent = swFrame
+    applyCorner(btn, 9)
+    return btn
+end
 
-local resetBtn = Instance.new("TextButton")
-resetBtn.Size = btnSize
-resetBtn.Position = UDim2.new(0.52,0,0,78)
-resetBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-resetBtn.Font = Enum.Font.GothamSemibold
-resetBtn.Text = "RESET"
-resetBtn.TextColor3 = Color3.new(1,1,1)
-resetBtn.TextSize = 16
-resetBtn.Parent = swFrame
+local startPauseBtn = makeBtn("START",  Color3.fromRGB(35,175,80),  0.02, 0, 84)
+local resetBtn      = makeBtn("RESET",  Color3.fromRGB(190,45,45),  0.52, 0, 84)
+local lapBtn        = makeBtn("LAP  ⏱", Color3.fromRGB(50,120,240), 0.02, 0, 128, 0.96)
 
-local lapBtn = Instance.new("TextButton")
-lapBtn.Size = UDim2.new(0.96,0,0,38)
-lapBtn.Position = UDim2.new(0.02,0,0,126)
-lapBtn.BackgroundColor3 = Color3.fromRGB(50, 130, 255)
-lapBtn.Font = Enum.Font.GothamSemibold
-lapBtn.Text = "LAP"
-lapBtn.TextColor3 = Color3.new(1,1,1)
-lapBtn.TextSize = 16
-lapBtn.Parent = swFrame
-
+-- Lap list
 local lapList = Instance.new("ScrollingFrame")
-lapList.Size = UDim2.new(0.96,0,0,70)
-lapList.Position = UDim2.new(0.02,0,0,174)
-lapList.BackgroundTransparency = 0.85
-lapList.ScrollBarThickness = 4
+lapList.Size = UDim2.new(0.96, 0, 0, 64)
+lapList.Position = UDim2.new(0.02, 0, 0, 172)
+lapList.BackgroundColor3 = Color3.fromRGB(13, 13, 18)
+lapList.BackgroundTransparency = 0.25
+lapList.ScrollBarThickness = 3
+lapList.ScrollBarImageColor3 = Color3.fromRGB(80,80,120)
 lapList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+lapList.BorderSizePixel = 0
+lapList.ZIndex = 2
 lapList.Parent = swFrame
+applyCorner(lapList, 8)
 
-local listLayout = Instance.new("UIListLayout")
-listLayout.Padding = UDim.new(0,5)
-listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Parent = lapList
+local llayout = Instance.new("UIListLayout")
+llayout.Padding = UDim.new(0,3)
+llayout.SortOrder = Enum.SortOrder.LayoutOrder
+llayout.Parent = lapList
+
+local lpad = Instance.new("UIPadding")
+lpad.PaddingLeft   = UDim.new(0,6)
+lpad.PaddingRight  = UDim.new(0,6)
+lpad.PaddingTop    = UDim.new(0,4)
+lpad.PaddingBottom = UDim.new(0,4)
+lpad.Parent = lapList
+
+local lapCount = 0
 
 -- ────────────────────────────────────────────────────────────────
---  SETTINGS PANEL (collapsible)
+--  RIGHT COLUMN: SETTINGS PANEL
 -- ────────────────────────────────────────────────────────────────
 local settingsPanel = Instance.new("Frame")
-settingsPanel.Size = UDim2.new(1,-24,0,110)
-settingsPanel.Position = UDim2.new(0,12,1,-130)   -- anchored to bottom - updated dynamically
-settingsPanel.BackgroundColor3 = Color3.fromRGB(24,24,30)
+settingsPanel.Name = "Settings"
+settingsPanel.Position = UDim2.new(0, RIGHT_X, 0, CONTENT_Y)
+settingsPanel.BackgroundColor3 = Color3.fromRGB(19, 19, 27)
 settingsPanel.BorderSizePixel = 0
 settingsPanel.Visible = false
+settingsPanel.ZIndex = 1
 settingsPanel.Parent = main
+applyCorner(settingsPanel, 12)
 
-local setCorner = Instance.new("UICorner")
-setCorner.CornerRadius = UDim.new(0,10)
-setCorner.Parent = settingsPanel
+-- Settings header
+local setHead = Instance.new("Frame")
+setHead.Size = UDim2.new(1, 0, 0, 36)
+setHead.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+setHead.BorderSizePixel = 0
+setHead.ZIndex = 2
+setHead.Parent = settingsPanel
+applyCorner(setHead, 10)
 
-local setTitle = Instance.new("TextLabel")
-setTitle.Size = UDim2.new(1,0,0,28)
-setTitle.BackgroundTransparency = 1
-setTitle.Font = Enum.Font.GothamBold
-setTitle.Text = "Settings"
-setTitle.TextColor3 = Color3.fromRGB(170,170,190)
-setTitle.TextSize = 16
-setTitle.Parent = settingsPanel
+local setHeadLbl = Instance.new("TextLabel")
+setHeadLbl.Size = UDim2.new(1, -14, 1, 0)
+setHeadLbl.Position = UDim2.new(0, 12, 0, 0)
+setHeadLbl.BackgroundTransparency = 1
+setHeadLbl.Font = Enum.Font.GothamBold
+setHeadLbl.Text = "⚙  Settings"
+setHeadLbl.TextColor3 = Color3.fromRGB(195, 195, 215)
+setHeadLbl.TextSize = 14
+setHeadLbl.TextXAlignment = Enum.TextXAlignment.Left
+setHeadLbl.ZIndex = 3
+setHeadLbl.Parent = setHead
 
-local function createToggle(y, text, default, callback)
-    local f = Instance.new("Frame")
-    f.Size = UDim2.new(1,-20,0,36)
-    f.Position = UDim2.new(0,10,0,y)
-    f.BackgroundTransparency = 1
-    f.Parent = settingsPanel
+-- ────────────────────────────────────────────────────────────────
+--  TOGGLE FACTORY (right panel)
+-- ────────────────────────────────────────────────────────────────
+local function createToggle(yOff, labelText, defaultVal, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -18, 0, 36)
+    row.Position = UDim2.new(0, 9, 0, yOff)
+    row.BackgroundTransparency = 1
+    row.ZIndex = 2
+    row.Parent = settingsPanel
 
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.7,0,1,0)
+    lbl.Size = UDim2.new(0.62, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Font = Enum.Font.Gotham
-    lbl.Text = text
-    lbl.TextColor3 = Color3.new(1,1,1)
-    lbl.TextSize = 15
+    lbl.Text = labelText
+    lbl.TextColor3 = Color3.fromRGB(195, 195, 215)
+    lbl.TextSize = 13
     lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = f
+    lbl.ZIndex = 3
+    lbl.Parent = row
 
-    local tog = Instance.new("TextButton")
-    tog.Size = UDim2.new(0,64,0,24)
-    tog.Position = UDim2.new(1,-74,0.5,-12)
-    tog.BackgroundColor3 = default and Color3.fromRGB(60,200,80) or Color3.fromRGB(200,60,60)
-    tog.Font = Enum.Font.GothamSemibold
-    tog.Text = default and "ON" or "OFF"
-    tog.TextColor3 = Color3.new(1,1,1)
-    tog.TextSize = 14
-    tog.Parent = f
+    local pill = Instance.new("TextButton")
+    pill.Size = UDim2.new(0, 54, 0, 24)
+    pill.Position = UDim2.new(1, -62, 0.5, -12)
+    pill.BackgroundColor3 = defaultVal
+        and Color3.fromRGB(48, 190, 95)
+        or  Color3.fromRGB(75, 75, 98)
+    pill.Font = Enum.Font.GothamBold
+    pill.Text = defaultVal and "ON" or "OFF"
+    pill.TextColor3 = Color3.new(1,1,1)
+    pill.TextSize = 11
+    pill.ZIndex = 3
+    pill.Parent = row
+    applyCorner(pill, 12)
 
-    local tc = Instance.new("UICorner")
-    tc.CornerRadius = UDim.new(0,12)
-    tc.Parent = tog
-
-    tog.MouseButton1Click:Connect(function()
-        default = not default
-        tog.BackgroundColor3 = default and Color3.fromRGB(60,200,80) or Color3.fromRGB(200,60,60)
-        tog.Text = default and "ON" or "OFF"
-        callback(default)
-        updateMainSize()
+    local val = defaultVal
+    pill.MouseButton1Click:Connect(function()
+        val = not val
+        tw(pill, {BackgroundColor3 = val
+            and Color3.fromRGB(48, 190, 95)
+            or  Color3.fromRGB(75, 75, 98)}, 0.15)
+        pill.Text = val and "ON" or "OFF"
+        callback(val)
     end)
+    pill.MouseEnter:Connect(function() tw(pill, {BackgroundTransparency = 0.15}, 0.1) end)
+    pill.MouseLeave:Connect(function() tw(pill, {BackgroundTransparency = 0},    0.1) end)
 end
 
-local use24h = true
-createToggle(34, "24-Hour Format", true, function(v) use24h = v end)
-
-local showStopwatch = true
-createToggle(74, "Show Stopwatch", true, function(v)
-    showStopwatch = v
-    swFrame.Visible = v
-    updateMainSize()
-end)
-
 -- ────────────────────────────────────────────────────────────────
---  AUTO-RESIZE LOGIC
+--  AUTO-RESIZE  (height from left column; width from settings toggle)
 -- ────────────────────────────────────────────────────────────────
-local function updateMainSize()
-    local baseHeight = 44           -- title bar
-               + 10                 -- top padding
-               + 90                 -- clock
-               + 10                 -- gap after clock
+local function updateLayout(animate)
+    -- Left column sizes
+    local clockH = showDate and 102 or 80
+    clockSection.Size = UDim2.new(0, LEFT_W, 0, clockH)
+    dateTxt.Visible   = showDate
 
-    local contentHeight = baseHeight
+    local swY = CONTENT_Y + clockH + 8
+    swFrame.Position = UDim2.new(0, LEFT_X, 0, swY)
+    swFrame.Size     = UDim2.new(0, LEFT_W, 0, 244)
+    swFrame.Visible  = showStopwatch
 
-    if showStopwatch then
-        contentHeight += 220 + 12     -- stopwatch frame + bottom padding
-    end
+    -- Total height driven by left column
+    local leftH = clockH + (showStopwatch and (8 + 244) or 0)
+    local totalH = compactMode and TITLE_H or (CONTENT_Y + leftH + BOT_PAD)
 
-    if settingsPanel.Visible then
-        contentHeight += 110 + 12     -- settings panel + padding
+    -- Right panel height matches left content area
+    settingsPanel.Size = UDim2.new(0, RIGHT_W, 0, leftH)
+
+    -- Width: slim if settings hidden, full if open
+    local totalW = (not compactMode and settingsOpen) and FULL_W or SLIM_W
+
+    divider.Visible = settingsOpen and not compactMode
+    divider.Size    = UDim2.new(0, 1, 0, leftH)
+    divider.Position = UDim2.new(0, RIGHT_X - 8, 0, CONTENT_Y)
+
+    if animate then
+        tw(main,   {Size = UDim2.new(0, totalW, 0, totalH)}, 0.28, Enum.EasingStyle.Quint)
+        tw(shadow, {Size = UDim2.new(0, totalW + 14, 0, totalH + 12)}, 0.28, Enum.EasingStyle.Quint)
     else
-        -- when settings hidden, we still need space at bottom
-        contentHeight += 20
+        main.Size   = UDim2.new(0, totalW, 0, totalH)
+        shadow.Size = UDim2.new(0, totalW + 14, 0, totalH + 12)
     end
 
-    main.Size = UDim2.new(0, 320, 0, contentHeight)
+    -- Position main centered
+    main.Position = UDim2.new(0.5, -totalW / 2, 0.5, -totalH / 2)
 
-    -- Keep settings panel anchored to bottom when visible
-    if settingsPanel.Visible then
-        settingsPanel.Position = UDim2.new(0,12,1,-122)   -- - (110 + 12 padding)
-    end
+    local mp = main.Position
+    shadow.Position = UDim2.new(mp.X.Scale, mp.X.Offset - 8, mp.Y.Scale, mp.Y.Offset + 9)
 end
 
--- Toggle settings panel + resize
-settingsBtn.MouseButton1Click:Connect(function()
-    settingsPanel.Visible = not settingsPanel.Visible
-    settingsBtn.ImageColor3 = settingsPanel.Visible 
-        and Color3.fromRGB(100,200,255) 
-        or  Color3.fromRGB(160,160,180)
-    updateMainSize()
+-- ────────────────────────────────────────────────────────────────
+--  REGISTER TOGGLES
+-- ────────────────────────────────────────────────────────────────
+createToggle(44,  "24-Hour Format", true,  function(v) use24h = v end)
+
+createToggle(88,  "Show Stopwatch", true,  function(v)
+    showStopwatch = v
+    updateLayout(true)
 end)
 
--- Initial setup
-updateMainSize()
+createToggle(132, "Show Date",      true,  function(v)
+    showDate = v
+    updateLayout(true)
+end)
+
+createToggle(176, "Milliseconds",   true,  function(v) showMs = v end)
+
+-- Accent Color cycler
+local themeRow = Instance.new("Frame")
+themeRow.Size = UDim2.new(1, -18, 0, 36)
+themeRow.Position = UDim2.new(0, 9, 0, 220)
+themeRow.BackgroundTransparency = 1
+themeRow.ZIndex = 2
+themeRow.Parent = settingsPanel
+
+local themeLbl = Instance.new("TextLabel")
+themeLbl.Size = UDim2.new(0.52, 0, 1, 0)
+themeLbl.BackgroundTransparency = 1
+themeLbl.Font = Enum.Font.Gotham
+themeLbl.Text = "Accent Color"
+themeLbl.TextColor3 = Color3.fromRGB(195, 195, 215)
+themeLbl.TextSize = 13
+themeLbl.TextXAlignment = Enum.TextXAlignment.Left
+themeLbl.ZIndex = 3
+themeLbl.Parent = themeRow
+
+local themeBtn = Instance.new("TextButton")
+themeBtn.Size = UDim2.new(0, 76, 0, 24)
+themeBtn.Position = UDim2.new(1, -84, 0.5, -12)
+themeBtn.BackgroundColor3 = themes[currentTheme].accent
+themeBtn.Font = Enum.Font.GothamBold
+themeBtn.Text = themes[currentTheme].name .. " ▸"
+themeBtn.TextColor3 = Color3.new(1,1,1)
+themeBtn.TextSize = 11
+themeBtn.ZIndex = 3
+themeBtn.Parent = themeRow
+applyCorner(themeBtn, 12)
+
+local function applyTheme(idx)
+    local t = themes[idx]
+    tw(mainStroke,  {Color = t.accent},            0.3)
+    tw(accentLine,  {BackgroundColor3 = t.accent}, 0.3)
+    tw(divider,     {BackgroundColor3 = t.accent}, 0.3)
+    tw(clockTxt,    {TextColor3 = t.clock},        0.3)
+    tw(swTime,      {TextColor3 = t.sw},           0.3)
+    tw(themeBtn,    {BackgroundColor3 = t.accent}, 0.3)
+    themeBtn.Text = t.name .. " ▸"
+end
+
+themeBtn.MouseButton1Click:Connect(function()
+    currentTheme = (currentTheme % #themes) + 1
+    applyTheme(currentTheme)
+end)
 
 -- ────────────────────────────────────────────────────────────────
---  LOGIC (stopwatch + clock)
+--  TITLE BAR BUTTON INTERACTIONS
 -- ────────────────────────────────────────────────────────────────
-local isRunning, swTimeSec, startClock = false, 0, 0
+settingsBtn.MouseButton1Click:Connect(function()
+    settingsOpen = not settingsOpen
+    settingsPanel.Visible = settingsOpen
+    tw(settingsBtn, {
+        ImageColor3 = settingsOpen
+            and Color3.fromRGB(100,200,255)
+            or  Color3.fromRGB(150,150,175)
+    }, 0.15)
+    updateLayout(true)
+end)
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    compactMode = not compactMode
+    minimizeBtn.Text = compactMode and "□" or "—"
+    updateLayout(true)
+end)
+
+local function btnHover(btn, base, hover)
+    btn.MouseEnter:Connect(function() tw(btn, {BackgroundColor3 = hover}, 0.12) end)
+    btn.MouseLeave:Connect(function() tw(btn, {BackgroundColor3 = base},  0.12) end)
+end
+btnHover(minimizeBtn, Color3.fromRGB(28,28,38),  Color3.fromRGB(48,48,62))
+btnHover(closeBtn,    Color3.fromRGB(200,50,50), Color3.fromRGB(230,75,75))
+btnHover(settingsBtn, Color3.fromRGB(28,28,38),  Color3.fromRGB(48,48,62))
+
+-- ────────────────────────────────────────────────────────────────
+--  STOPWATCH LOGIC
+-- ────────────────────────────────────────────────────────────────
+local isRunning  = false
+local swTimeSec  = 0
+local swStart    = 0
 
 local function fmtClock()
     return os.date(use24h and "%H:%M:%S" or "%I:%M:%S %p")
 end
 
-local function fmtStopwatch()
-    local t = swTimeSec
-    if isRunning then t = t + (os.clock() - startClock) end
-    local m = math.floor(t / 60)
-    local s = math.floor(t % 60)
-    local c = math.floor((t % 1) * 100)
-    return string.format("%02d:%02d.%02d", m, s, c)
+local function fmtDate()
+    return os.date("%a, %d %b %Y")
 end
 
-local function updateBtns()
+local function fmtSW()
+    local t = swTimeSec
+    if isRunning then t = t + (os.clock() - swStart) end
+    local m  = math.floor(t / 60)
+    local s  = math.floor(t % 60)
+    local cs = math.floor((t % 1) * 100)
+    return showMs
+        and string.format("%02d:%02d.%02d", m, s, cs)
+        or  string.format("%02d:%02d", m, s)
+end
+
+local function refreshBtns()
+    local col, lbl
     if isRunning then
-        startPauseBtn.Text = "PAUSE"
-        startPauseBtn.BackgroundColor3 = Color3.fromRGB(220, 140, 0)
+        col, lbl = Color3.fromRGB(220,140,0), "PAUSE"
+    elseif swTimeSec > 0 then
+        col, lbl = Color3.fromRGB(35,175,80),  "RESUME"
     else
-        startPauseBtn.Text = (swTimeSec > 0) and "RESUME" or "START"
-        startPauseBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 40)
+        col, lbl = Color3.fromRGB(35,175,80),  "START"
     end
+    tw(startPauseBtn, {BackgroundColor3 = col}, 0.15)
+    startPauseBtn.Text = lbl
 end
 
 startPauseBtn.MouseButton1Click:Connect(function()
     if isRunning then
-        swTimeSec += (os.clock() - startClock)
+        swTimeSec += (os.clock() - swStart)
         isRunning = false
     else
-        startClock = os.clock()
+        swStart   = os.clock()
         isRunning = true
     end
-    updateBtns()
+    refreshBtns()
 end)
 
 resetBtn.MouseButton1Click:Connect(function()
     isRunning = false
     swTimeSec = 0
-    for _,c in ipairs(lapList:GetChildren()) do
+    lapCount  = 0
+    for _, c in ipairs(lapList:GetChildren()) do
         if c:IsA("GuiObject") then c:Destroy() end
     end
-    updateBtns()
+    refreshBtns()
+    swTime.Text = showMs and "00:00.00" or "00:00"
 end)
 
 lapBtn.MouseButton1Click:Connect(function()
     if not isRunning then return end
-    local t = swTimeSec + (os.clock() - startClock)
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1,0,0,28)
-    lbl.BackgroundColor3 = Color3.fromRGB(34,34,42)
-    lbl.Font = Enum.Font.RobotoMono
-    lbl.Text = string.format("Lap %d  %s", #lapList:GetChildren(), fmtStopwatch())
-    lbl.TextColor3 = Color3.fromRGB(220,220,240)
-    lbl.TextSize = 15
-    lbl.Parent = lapList
+    lapCount += 1
+    local t = fmtSW()
 
-    local lc = Instance.new("UICorner")
-    lc.CornerRadius = UDim.new(0,6)
-    lc.Parent = lbl
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 24)
+    row.BackgroundColor3 = lapCount % 2 == 0
+        and Color3.fromRGB(26, 26, 36)
+        or  Color3.fromRGB(20, 20, 28)
+    row.BorderSizePixel = 0
+    row.ZIndex = 3
+    row.Parent = lapList
+    applyCorner(row, 5)
+
+    local n = Instance.new("TextLabel")
+    n.Size = UDim2.new(0.38, 0, 1, 0)
+    n.Position = UDim2.new(0, 6, 0, 0)
+    n.BackgroundTransparency = 1
+    n.Font = Enum.Font.GothamBold
+    n.Text = "Lap " .. lapCount
+    n.TextColor3 = themes[currentTheme].accent
+    n.TextSize = 12
+    n.TextXAlignment = Enum.TextXAlignment.Left
+    n.ZIndex = 4
+    n.Parent = row
+
+    local ts = Instance.new("TextLabel")
+    ts.Size = UDim2.new(0.60, 0, 1, 0)
+    ts.Position = UDim2.new(0.40, 0, 0, 0)
+    ts.BackgroundTransparency = 1
+    ts.Font = Enum.Font.RobotoMono
+    ts.Text = t
+    ts.TextColor3 = Color3.fromRGB(205, 205, 225)
+    ts.TextSize = 12
+    ts.TextXAlignment = Enum.TextXAlignment.Right
+    ts.ZIndex = 4
+    ts.Parent = row
+
+    task.defer(function()
+        lapList.CanvasPosition = Vector2.new(0, lapList.AbsoluteCanvasSize.Y)
+    end)
 end)
 
--- Hover feedback
-local function hoverEffect(btn, baseColor)
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.14), {BackgroundColor3 = baseColor:Lerp(Color3.new(1,1,1),0.15)}):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.14), {BackgroundColor3 = baseColor}):Play()
-    end)
+local function hoverSW(btn, base)
+    btn.MouseEnter:Connect(function() tw(btn, {BackgroundColor3 = base:Lerp(Color3.new(1,1,1),0.18)}, 0.12) end)
+    btn.MouseLeave:Connect(function() tw(btn, {BackgroundColor3 = base}, 0.12) end)
 end
-
-hoverEffect(startPauseBtn, Color3.fromRGB(40,180,40))
-hoverEffect(resetBtn,     Color3.fromRGB(180,40,40))
-hoverEffect(lapBtn,       Color3.fromRGB(50,130,255))
+hoverSW(resetBtn, Color3.fromRGB(190, 45, 45))
+hoverSW(lapBtn,   Color3.fromRGB(50, 120, 240))
 
 -- ────────────────────────────────────────────────────────────────
---  HEARTBEAT UPDATE
+--  HEARTBEAT
 -- ────────────────────────────────────────────────────────────────
 RunService.Heartbeat:Connect(function()
-    clockTxt.Text = fmtClock()
-    if showStopwatch then
-        swTime.Text = fmtStopwatch()
+    if not compactMode then
+        clockTxt.Text = fmtClock()
+        if showDate      then dateTxt.Text = fmtDate() end
+        if showStopwatch then swTime.Text  = fmtSW()   end
     end
 end)
 
-updateBtns()
-print("Auto-resizing Clock + Stopwatch GUI loaded ✓")
+-- ────────────────────────────────────────────────────────────────
+--  INIT
+-- ────────────────────────────────────────────────────────────────
+updateLayout(false)
+refreshBtns()
+print("✅  Landscape Clock + Stopwatch GUI loaded!")
